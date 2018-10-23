@@ -28,41 +28,45 @@ pub fn get_funding<'a>(connection: &PgConnection, user_id: &'a str) -> Result<Fu
 pub fn add_funding<'a>(user_id: &'a str, amount_to_add: i32) -> Result<(), ()> {
     use self::schema::fundings::dsl;
     let connection = establish_connection();
-    
-    // TODO: lock db for read and update. I think transaction is not enough ?
-    let funding_to_modify = match get_funding(&connection, user_id) {
-        Ok(f) => { f},
-        Err(_) => {
-            println!("Must create new funding.");
-            let newFunding = NewFunding {
-                user_id: &user_id.to_string(),
-                amount: 0,
-            };
-            diesel::insert_into(fundings::table)
-                .values(&newFunding)
-                .get_result(&connection)
-                .expect("Error saving new post")
+
+    match diesel::update(dsl::fundings.filter(dsl::user_id.eq(String::from(user_id))))
+        .set(dsl::amount.eq(dsl::amount + amount_to_add))
+        .get_result::<Funding>(&connection) {
+            Ok(f) => Ok(()),
+            Err(_) => {
+                println!("Must create new funding.");
+                let new_funding = NewFunding {
+                    user_id: &user_id.to_string(),
+                    amount: amount_to_add,
+                };
+                diesel::insert_into(fundings::table)
+                    .values(&new_funding)
+                    .get_result::<Funding>(&connection)
+                    .expect("Error saving new post");
+                    Ok(())
+            }
         }
-    };
-
-    let initial_amout = funding_to_modify.amount;
-
-    let post = diesel::update(dsl::fundings.find(funding_to_modify.id))
-        .set(dsl::amount.eq(initial_amout + amount_to_add))
-        .get_result::<Funding>(&connection)
-        .expect(&format!("Unable to update funding {}", user_id));
-    Ok(())
 }
 
 #[cfg(test)]
 mod test {
     use crate::database::*;
+
+    fn remove_funding(funding: Funding) {
+        use self::schema::fundings::dsl;
+
+        let connection = establish_connection();
+        diesel::delete(dsl::fundings.find(funding.id)).execute(&connection).expect(&format!("Error removing funding with id {}", funding.id));
+    }
+
     #[test]
     fn add_and_get_funding() {
         add_funding("user1", 2);
         add_funding("user1", 2);
         add_funding("user1", 2);
-        assert_eq!(get_funding(&establish_connection(), "user1").expect("failed to get funding").amount, 6);
+        let funding = get_funding(&establish_connection(), "user1").expect("failed to get funding");
+        assert_eq!(funding.amount, 6);
+        remove_funding(funding);
     }
 }
 
