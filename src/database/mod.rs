@@ -18,17 +18,21 @@ pub fn establish_connection() -> PgConnection {
         .expect(&format!("Error connecting to {}", database_url))
 }
 
-pub fn get_funding<'a>(connection: &PgConnection, user_id: &'a str) -> Result<Funding, diesel::result::Error> {
+pub fn get_funding<'a>(user_id: &'a str) -> Result<Funding, diesel::result::Error> {
+    internal_get_funding(&establish_connection(), user_id)
+}
+pub fn internal_get_funding<'a>(connection: &PgConnection, user_id: &'a str) -> Result<Funding, diesel::result::Error> {
     use self::schema::fundings::dsl;
     
-    // TODO: lock db for read and update. I think transaction is not enough ?
     Ok(dsl::fundings.filter(dsl::user_id.eq(String::from(user_id))).limit(1).get_result::<Funding>(connection)?)
 }
 
-pub fn add_funding<'a>(user_id: &'a str, amount_to_add: i32) -> Result<(), ()> {
+pub fn add_funding<'a>(user_id: &'a str, amount_to_add: u32) -> Result<(), ()> {
     use self::schema::fundings::dsl;
     let connection = establish_connection();
 
+    let amount_to_add = amount_to_add as i32;
+    
     match diesel::update(dsl::fundings.filter(dsl::user_id.eq(String::from(user_id))))
         .set(dsl::amount.eq(dsl::amount + amount_to_add))
         .get_result::<Funding>(&connection) {
@@ -64,7 +68,7 @@ mod test {
         add_funding("user1", 2);
         add_funding("user1", 2);
         add_funding("user1", 2);
-        let funding = get_funding(&establish_connection(), "user1").expect("failed to get funding");
+        let funding = internal_get_funding(&establish_connection(), "user1").expect("failed to get funding");
         assert_eq!(funding.amount, 6);
         remove_funding(funding);
     }
